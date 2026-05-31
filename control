@@ -1,0 +1,7 @@
+Package: com.yourname.lqfps
+Name: LqFPSOptimizer
+Depends: mobilesubstrate
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Tối ưu FPS và Chống văng Liên Quân
+Author: YourName
