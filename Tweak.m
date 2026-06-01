@@ -95,6 +95,36 @@ void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
 @end
 
 // ============================================================================
+// CHỐNG CRASH TẬP TIN HỆ THỐNG (NSASSERTIONHANDLER BYPASS)
+// ============================================================================
+@interface NSAssertionHandler (LqFPSSwizzle)
+@end
+
+@implementation NSAssertionHandler (LqFPSSwizzle)
+
+- (void)my_handleFailureInMethod:(SEL)selector object:(id)object file:(NSString *)fileName lineNumber:(NSInteger)line description:(NSString *)format, ... {
+    va_list args;
+    va_start(args, format);
+    NSString *description = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    
+    NSLog(@"[LqFPSOptimizer] Bypassed NSAssertionHandler method failure: %@", description);
+    // Bỏ qua hoàn toàn, không ném ngoại lệ (exception) để tránh văng game
+}
+
+- (void)my_handleFailureInFunction:(NSString *)functionName file:(NSString *)fileName lineNumber:(NSInteger)line description:(NSString *)format, ... {
+    va_list args;
+    va_start(args, format);
+    NSString *description = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    
+    NSLog(@"[LqFPSOptimizer] Bypassed NSAssertionHandler function failure: %@", description);
+    // Bỏ qua hoàn toàn, không ném ngoại lệ (exception) để tránh văng game
+}
+
+@end
+
+// ============================================================================
 // 5. KHỞI CHẠY KHI GAME LOAD (CONSTRUCTOR)
 // ============================================================================
 __attribute__((constructor)) static void init() {
@@ -107,5 +137,16 @@ __attribute__((constructor)) static void init() {
         swizzleMethod([UIDevice class], @selector(localizedModel), @selector(my_localizedModel));
         swizzleMethod([UIDevice class], @selector(name), @selector(my_name));
         swizzleMethod([UIDevice class], @selector(systemVersion), @selector(my_systemVersion));
+        
+        // Swizzle NSAssertionHandler để tắt hoàn toàn các crash do Assertion (như BoundingPathBitmap)
+        swizzleMethod([NSAssertionHandler class], 
+                      @selector(handleFailureInMethod:object:file:lineNumber:description:), 
+                      @selector(my_handleFailureInMethod:object:file:lineNumber:description:));
+                      
+        swizzleMethod([NSAssertionHandler class], 
+                      @selector(handleFailureInFunction:file:lineNumber:description:), 
+                      @selector(my_handleFailureInFunction:file:lineNumber:description:));
+                      
+        NSLog(@"[LqFPSOptimizer] Standalone FPS & Anti-Crash Tweak initialized successfully!");
     }
 }
