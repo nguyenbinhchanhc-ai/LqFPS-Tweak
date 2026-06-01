@@ -1,101 +1,80 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-#import <Security/Security.h>
 #import <objc/runtime.h>
 
-// ============================================================================
-// 1. MACRO DYLD_INTERPOSE (CHỐNG VĂNG KEYCHAIN KHI SIDELOAD)
-// ============================================================================
-#define DYLD_INTERPOSE(_replacement,_replacee) \
-__attribute__((used)) static struct{ const void* replacement; const void* replacee; } _interpose_##_replacee \
-__attribute     ((section ("__DATA,__interpose"))) = { (const void*)(unsigned long)&_replacement, (const void*)(unsigned long)&_replacee };
+// Lưu giữ địa chỉ hàm gốc của hệ thống để khôi phục sau đó
+static IMP orig_handleFailureInMethod = NULL;
+static IMP orig_handleFailureInFunction = NULL;
 
-// Hook SecItemCopyMatching chống văng do Keychain
-OSStatus my_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
-    OSStatus status = SecItemCopyMatching(query, result);
-    if (status == errSecMissingEntitlement) {
-        return errSecSuccess;
-    }
-    return status;
-}
-DYLD_INTERPOSE(my_SecItemCopyMatching, SecItemCopyMatching);
-
-// Hook SecItemAdd cho phép ghi dữ liệu Keychain
-OSStatus my_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
-    OSStatus status = SecItemAdd(attributes, result);
-    if (status == errSecMissingEntitlement) {
-        return errSecSuccess;
-    }
-    return status;
-}
-DYLD_INTERPOSE(my_SecItemAdd, SecItemAdd);
-
+static Method method_method = NULL;
+static Method function_method = NULL;
 
 // ============================================================================
-// 2. HÀM SWIZZLING ĐỂ HOOK OBJECTIVE-C (ZERO DEPENDENCY)
+// 1. CÁC HÀM HOOK TẠM THỜI (CHỈ CHẠY TRONG 8 GIÂY ĐẦU KHỞI ĐỘNG)
 // ============================================================================
-void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
-    Method originalMethod = class_getInstanceMethod(class, originalSelector);
-    Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
-    
-    BOOL didAddMethod = class_addMethod(class,
-                                        originalSelector,
-                                        method_getImplementation(swizzledMethod),
-                                        method_getTypeEncoding(swizzledMethod));
-    
-    if (didAddMethod) {
-        class_replaceMethod(class,
-                            swizzledSelector,
-                            method_getImplementation(originalMethod),
-                            method_getTypeEncoding(originalMethod));
-    } else {
-        method_exchangeImplementations(originalMethod, swizzledMethod);
-    }
-}
-
-// ============================================================================
-// 3. CHỐNG CRASH TẬP TIN HỆ THỐNG (NSASSERTIONHANDLER BYPASS - BẮT BUỘC)
-// ============================================================================
-@interface NSAssertionHandler (LqFPSSwizzle)
-@end
-
-@implementation NSAssertionHandler (LqFPSSwizzle)
-
-- (void)my_handleFailureInMethod:(SEL)selector object:(id)object file:(NSString *)fileName lineNumber:(NSInteger)line description:(NSString *)format, ... {
+void my_handleFailureInMethod(id self, SEL _cmd, SEL selector, id object, NSString *fileName, NSInteger line, NSString *format, ...) {
     va_list args;
     va_start(args, format);
     NSString *description = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
     
-    NSLog(@"[LqFPSOptimizer] Bypassed NSAssertionHandler method failure: %@", description);
+    NSLog(@"[LqFPSOptimizer] Bypassed NSAssertionHandler method failure during startup: %@", description);
 }
 
-- (void)my_handleFailureInFunction:(NSString *)functionName file:(NSString *)fileName lineNumber:(NSInteger)line description:(NSString *)format, ... {
+void my_handleFailureInFunction(id self, SEL _cmd, NSString *functionName, NSString *fileName, NSInteger line, NSString *format, ...) {
     va_list args;
     va_start(args, format);
     NSString *description = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
     
-    NSLog(@"[LqFPSOptimizer] Bypassed NSAssertionHandler function failure: %@", description);
+    NSLog(@"[LqFPSOptimizer] Bypassed NSAssertionHandler function failure during startup: %@", description);
 }
 
-@end
-
+// ============================================================================
+// 2. HÀM THỰC HIỆN HOOK
+// ============================================================================
+void swizzleAssertionHandler() {
+    Class class = [NSAssertionHandler class];
+    
+    SEL sel_method = @selector(handleFailureInMethod:object:file:lineNumber:description:);
+    SEL sel_function = @selector(handleFailureInFunction:file:lineNumber:description:);
+    
+    method_method = class_getInstanceMethod(class, sel_method);
+    function_method = class_getInstanceMethod(class, sel_function);
+    
+    if (method_method && function_method) {
+        // Thực hiện hook và lưu lại IMP gốc
+        orig_handleFailureInMethod = method_setImplementation(method_method, (IMP)my_handleFailureInMethod);
+        orig_handleFailureInFunction = method_setImplementation(function_method, (IMP)my_handleFailureInFunction);
+        NSLog(@"[LqFPSOptimizer] Successfully swizzled NSAssertionHandler for startup bypass.");
+    }
+}
 
 // ============================================================================
-// 4. KHỞI CHẠY KHI GAME LOAD (CONSTRUCTOR)
+// 3. HÀM KHÔI PHỤC NGUYÊN BẢN (REVERT HOOK - TRÁNH TENCENT ANTI-CHEAT)
+// ============================================================================
+void restoreAssertionHandler() {
+    if (method_method && orig_handleFailureInMethod) {
+        method_setImplementation(method_method, orig_handleFailureInMethod);
+    }
+    if (function_method && orig_handleFailureInFunction) {
+        method_setImplementation(function_method, orig_handleFailureInFunction);
+    }
+    NSLog(@"[LqFPSOptimizer] Successfully RESTORED NSAssertionHandler to 100%% original system state!");
+}
+
+// ============================================================================
+// 4. KHỞI CHẠY KHI GAME LOAD (CONSTRUCTOR STEALTH MODE)
 // ============================================================================
 __attribute__((constructor)) static void init() {
     @autoreleasepool {
-        // Swizzle NSAssertionHandler để tắt hoàn toàn các crash do Assertion (như BoundingPathBitmap)
-        swizzleMethod([NSAssertionHandler class], 
-                      @selector(handleFailureInMethod:object:file:lineNumber:description:), 
-                      @selector(my_handleFailureInMethod:object:file:lineNumber:description:));
-                      
-        swizzleMethod([NSAssertionHandler class], 
-                      @selector(handleFailureInFunction:file:lineNumber:description:), 
-                      @selector(my_handleFailureInFunction:file:lineNumber:description:));
-                      
-        NSLog(@"[LqFPSOptimizer] Standalone Anti-Crash Tweak initialized successfully!");
+        // Bước 1: Hook tạm thời bộ báo lỗi lúc mở game để tránh lỗi văng notch màn hình BoundingPathBitmap
+        swizzleAssertionHandler();
+        
+        // Bước 2: Tự động KHÔI PHỤC lại nguyên bản 100% mã nguồn hệ thống sau 8 giây
+        // (Lúc này game đã qua logo và vào sảnh chính. Khi vào trận đấu, MTP quét bộ nhớ sẽ thấy hệ thống sạch 100%)
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            restoreAssertionHandler();
+        });
     }
 }
