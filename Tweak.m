@@ -5,7 +5,7 @@
 #import <objc/runtime.h>
 
 // ============================================================================
-// 1. MACRO DYLD_INTERPOSE (CHỐNG VĂNG CHO APP KHÔNG JAILBREAK - KHÔNG CẦN SUBSTRATE)
+// 1. MACRO DYLD_INTERPOSE (CHỐNG VĂNG CHO APP KHÔNG JAILBREAK)
 // ============================================================================
 #define DYLD_INTERPOSE(_replacement,_replacee) \
 __attribute__((used)) static struct{ const void* replacement; const void* replacee; } _interpose_##_replacee \
@@ -19,7 +19,8 @@ __attribute__ ((section ("__DATA,__interpose"))) = { (const void*)(unsigned long
 int my_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
     if (name && strcmp(name, "hw.machine") == 0) {
         if (oldp) {
-            strcpy((char *)oldp, "iPad13,8"); // Giả lập iPad Pro M1
+            // Giả lập thành iPhone 15 Pro Max thay vì iPad để tránh lỗi lệch cấu trúc notch/Dynamic Island
+            strcpy((char *)oldp, "iPhone16,2"); 
         }
         return 0;
     }
@@ -86,9 +87,10 @@ void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
 @end
 
 @implementation UIDevice (LqFPSSwizzle)
-- (NSString *)my_model { return @"iPad"; }
-- (NSString *)my_localizedModel { return @"iPad"; }
-- (NSString *)my_name { return @"iPad Pro"; }
+// Sửa thành "iPhone" thay vì "iPad" để tránh xung đột với độ phân giải màn hình của iPhone vật lý
+- (NSString *)my_model { return @"iPhone"; }
+- (NSString *)my_localizedModel { return @"iPhone"; }
+- (NSString *)my_name { return @"iPhone 15 Pro Max"; }
 - (NSString *)my_systemVersion { return @"17.0"; }
 @end
 
@@ -100,7 +102,7 @@ __attribute__((constructor)) static void init() {
         // Swizzle NSBundle để đánh lừa Bundle ID
         swizzleMethod([NSBundle class], @selector(bundleIdentifier), @selector(my_bundleIdentifier));
         
-        // Swizzle UIDevice để đồng bộ cấu hình iPad giả lập
+        // Swizzle UIDevice để đồng bộ cấu hình iPhone giả lập
         swizzleMethod([UIDevice class], @selector(model), @selector(my_model));
         swizzleMethod([UIDevice class], @selector(localizedModel), @selector(my_localizedModel));
         swizzleMethod([UIDevice class], @selector(name), @selector(my_name));
