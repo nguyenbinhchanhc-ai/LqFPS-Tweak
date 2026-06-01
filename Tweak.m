@@ -19,7 +19,7 @@ __attribute__ ((section ("__DATA,__interpose"))) = { (const void*)(unsigned long
 int my_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
     if (name && strcmp(name, "hw.machine") == 0) {
         if (oldp) {
-            // Giả lập thành iPhone 15 Pro Max thay vì iPad để tránh lỗi lệch cấu trúc notch/Dynamic Island
+            // Giả lập thành iPhone 15 Pro Max để tránh lỗi cấu trúc Dynamic Island
             strcpy((char *)oldp, "iPhone16,2"); 
         }
         return 0;
@@ -79,7 +79,16 @@ void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
 
 @implementation NSBundle (LqFPSSwizzle)
 - (NSString *)my_bundleIdentifier {
-    return @"com.garena.game.kgvn"; // Giả lập Bundle ID gốc
+    // Gọi phương thức gốc thông qua phương thức đã tráo đổi
+    NSString *orig = [self my_bundleIdentifier]; 
+    
+    // CHỈ định danh Liên Quân cho Game. KHÔNG đổi Bundle ID cho chính LiveContainer
+    // Nếu đổi của LiveContainer, LiveContainer sẽ không load được giao diện của chính nó (gây đen màn hình)
+    if (orig && ([orig containsString:@"LiveContainer"] || [orig isEqualToString:@"ch.playcover.LiveContainer"])) {
+        return orig; 
+    }
+    
+    return @"com.garena.game.kgvn"; // Trả về Garena cho game Liên Quân
 }
 @end
 
@@ -87,7 +96,6 @@ void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
 @end
 
 @implementation UIDevice (LqFPSSwizzle)
-// Sửa thành "iPhone" thay vì "iPad" để tránh xung đột với độ phân giải màn hình của iPhone vật lý
 - (NSString *)my_model { return @"iPhone"; }
 - (NSString *)my_localizedModel { return @"iPhone"; }
 - (NSString *)my_name { return @"iPhone 15 Pro Max"; }
@@ -109,7 +117,6 @@ void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
     va_end(args);
     
     NSLog(@"[LqFPSOptimizer] Bypassed NSAssertionHandler method failure: %@", description);
-    // Bỏ qua hoàn toàn, không ném ngoại lệ (exception) để tránh văng game
 }
 
 - (void)my_handleFailureInFunction:(NSString *)functionName file:(NSString *)fileName lineNumber:(NSInteger)line description:(NSString *)format, ... {
@@ -119,7 +126,6 @@ void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
     va_end(args);
     
     NSLog(@"[LqFPSOptimizer] Bypassed NSAssertionHandler function failure: %@", description);
-    // Bỏ qua hoàn toàn, không ném ngoại lệ (exception) để tránh văng game
 }
 
 @end
