@@ -19,7 +19,7 @@ __attribute__ ((section ("__DATA,__interpose"))) = { (const void*)(unsigned long
 int my_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {
     if (name && strcmp(name, "hw.machine") == 0) {
         if (oldp) {
-            // Giả lập thành iPhone 15 Pro Max để tránh lỗi cấu trúc Dynamic Island
+            // Giả lập thành iPhone 15 Pro Max để mở khóa cài đặt đồ họa tối đa
             strcpy((char *)oldp, "iPhone16,2"); 
         }
         return 0;
@@ -49,7 +49,7 @@ OSStatus my_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
 DYLD_INTERPOSE(my_SecItemAdd, SecItemAdd);
 
 // ============================================================================
-// 3. HÀM SWIZZLING ĐỂ HOOK OBJECTIVE-C (NSBUNDLE & UIDEVICE)
+// 3. HÀM SWIZZLING ĐỂ HOOK OBJECTIVE-C (NSASSERTIONHANDLER BYPASS)
 // ============================================================================
 void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
     Method originalMethod = class_getInstanceMethod(class, originalSelector);
@@ -69,38 +69,6 @@ void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
         method_exchangeImplementations(originalMethod, swizzledMethod);
     }
 }
-
-// ============================================================================
-// 4. THAY THẾ PHƯƠNG THỨC HOOK (METHOD SWIZZLING IMPLEMENTATIONS)
-// ============================================================================
-
-@interface NSBundle (LqFPSSwizzle)
-@end
-
-@implementation NSBundle (LqFPSSwizzle)
-- (NSString *)my_bundleIdentifier {
-    // Gọi phương thức gốc thông qua phương thức đã tráo đổi
-    NSString *orig = [self my_bundleIdentifier]; 
-    
-    // CHỈ định danh Liên Quân cho Game. KHÔNG đổi Bundle ID cho chính LiveContainer
-    // Nếu đổi của LiveContainer, LiveContainer sẽ không load được giao diện của chính nó (gây đen màn hình)
-    if (orig && ([orig containsString:@"LiveContainer"] || [orig isEqualToString:@"ch.playcover.LiveContainer"])) {
-        return orig; 
-    }
-    
-    return @"com.garena.game.kgvn"; // Trả về Garena cho game Liên Quân
-}
-@end
-
-@interface UIDevice (LqFPSSwizzle)
-@end
-
-@implementation UIDevice (LqFPSSwizzle)
-- (NSString *)my_model { return @"iPhone"; }
-- (NSString *)my_localizedModel { return @"iPhone"; }
-- (NSString *)my_name { return @"iPhone 15 Pro Max"; }
-- (NSString *)my_systemVersion { return @"17.0"; }
-@end
 
 // ============================================================================
 // CHỐNG CRASH TẬP TIN HỆ THỐNG (NSASSERTIONHANDLER BYPASS)
@@ -131,19 +99,10 @@ void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
 @end
 
 // ============================================================================
-// 5. KHỞI CHẠY KHI GAME LOAD (CONSTRUCTOR)
+// 4. KHỞI CHẠY KHI GAME LOAD (CONSTRUCTOR)
 // ============================================================================
 __attribute__((constructor)) static void init() {
     @autoreleasepool {
-        // Swizzle NSBundle để đánh lừa Bundle ID
-        swizzleMethod([NSBundle class], @selector(bundleIdentifier), @selector(my_bundleIdentifier));
-        
-        // Swizzle UIDevice để đồng bộ cấu hình iPhone giả lập
-        swizzleMethod([UIDevice class], @selector(model), @selector(my_model));
-        swizzleMethod([UIDevice class], @selector(localizedModel), @selector(my_localizedModel));
-        swizzleMethod([UIDevice class], @selector(name), @selector(my_name));
-        swizzleMethod([UIDevice class], @selector(systemVersion), @selector(my_systemVersion));
-        
         // Swizzle NSAssertionHandler để tắt hoàn toàn các crash do Assertion (như BoundingPathBitmap)
         swizzleMethod([NSAssertionHandler class], 
                       @selector(handleFailureInMethod:object:file:lineNumber:description:), 
