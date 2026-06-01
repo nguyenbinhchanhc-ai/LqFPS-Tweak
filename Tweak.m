@@ -8,7 +8,7 @@
 // ============================================================================
 #define DYLD_INTERPOSE(_replacement,_replacee) \
 __attribute__((used)) static struct{ const void* replacement; const void* replacee; } _interpose_##_replacee \
-__attribute__ ((section ("__DATA,__interpose"))) = { (const void*)(unsigned long)&_replacement, (const void*)(unsigned long)&_replacee };
+__attribute     ((section ("__DATA,__interpose"))) = { (const void*)(unsigned long)&_replacement, (const void*)(unsigned long)&_replacee };
 
 // Hook SecItemCopyMatching chống văng do Keychain
 OSStatus my_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
@@ -34,19 +34,17 @@ DYLD_INTERPOSE(my_SecItemAdd, SecItemAdd);
 // ============================================================================
 // 2. HÀM SWIZZLING ĐỂ HOOK OBJECTIVE-C (ZERO DEPENDENCY)
 // ============================================================================
-void swizzleClassMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
-    Method originalMethod = class_getClassMethod(class, originalSelector);
-    Method swizzledMethod = class_getClassMethod(class, swizzledSelector);
+void swizzleMethod(Class class, SEL originalSelector, SEL swizzledSelector) {
+    Method originalMethod = class_getInstanceMethod(class, originalSelector);
+    Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
     
-    Class metaClass = object_getClass(class);
-    
-    BOOL didAddMethod = class_addMethod(metaClass,
+    BOOL didAddMethod = class_addMethod(class,
                                         originalSelector,
                                         method_getImplementation(swizzledMethod),
                                         method_getTypeEncoding(swizzledMethod));
     
     if (didAddMethod) {
-        class_replaceMethod(metaClass,
+        class_replaceMethod(class,
                             swizzledSelector,
                             method_getImplementation(originalMethod),
                             method_getTypeEncoding(originalMethod));
@@ -55,27 +53,30 @@ void swizzleClassMethod(Class class, SEL originalSelector, SEL swizzledSelector)
     }
 }
 
-
 // ============================================================================
-// 3. VÁ LỖI CẤU TRÚC NOTCH MÀN HÌNH (IMAGE_NAMED HOOK - SIÊU SẠCH & AN TOÀN)
+// 3. CHỐNG CRASH TẬP TIN HỆ THỐNG (NSASSERTIONHANDLER BYPASS - BẮT BUỘC)
 // ============================================================================
-@interface UIImage (LqFPSSwizzle)
+@interface NSAssertionHandler (LqFPSSwizzle)
 @end
 
-@implementation UIImage (LqFPSSwizzle)
+@implementation NSAssertionHandler (LqFPSSwizzle)
 
-+ (UIImage *)my_imageNamed:(NSString *)name inBundle:(NSBundle *)bundle compatibleWithTraitCollection:(UITraitCollection *)traitCollection {
-    if (name && [name containsString:@"BoundingPathBitmap"]) {
-        NSLog(@"[LqFPSOptimizer] Intercepted BoundingPathBitmap request: %@", name);
-        
-        // Tạo một ảnh trống 1x1 trong suốt để UIKit không bị lỗi Asset và không kích hoạt Assertion Crash!
-        UIGraphicsBeginImageContextWithOptions(CGSizeMake(1, 1), NO, 0.0);
-        UIImage *blankImage = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-        
-        return blankImage;
-    }
-    return [self my_imageNamed:name inBundle:bundle compatibleWithTraitCollection:traitCollection];
+- (void)my_handleFailureInMethod:(SEL)selector object:(id)object file:(NSString *)fileName lineNumber:(NSInteger)line description:(NSString *)format, ... {
+    va_list args;
+    va_start(args, format);
+    NSString *description = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    
+    NSLog(@"[LqFPSOptimizer] Bypassed NSAssertionHandler method failure: %@", description);
+}
+
+- (void)my_handleFailureInFunction:(NSString *)functionName file:(NSString *)fileName lineNumber:(NSInteger)line description:(NSString *)format, ... {
+    va_list args;
+    va_start(args, format);
+    NSString *description = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    
+    NSLog(@"[LqFPSOptimizer] Bypassed NSAssertionHandler function failure: %@", description);
 }
 
 @end
@@ -86,11 +87,15 @@ void swizzleClassMethod(Class class, SEL originalSelector, SEL swizzledSelector)
 // ============================================================================
 __attribute__((constructor)) static void init() {
     @autoreleasepool {
-        // Swizzle UIImage để tự động vá lỗi màn hình đen / crash notch BoundingPathBitmap cực kỳ sạch
-        swizzleClassMethod([UIImage class], 
-                           @selector(imageNamed:inBundle:compatibleWithTraitCollection:), 
-                           @selector(my_imageNamed:inBundle:compatibleWithTraitCollection:));
-                           
+        // Swizzle NSAssertionHandler để tắt hoàn toàn các crash do Assertion (như BoundingPathBitmap)
+        swizzleMethod([NSAssertionHandler class], 
+                      @selector(handleFailureInMethod:object:file:lineNumber:description:), 
+                      @selector(my_handleFailureInMethod:object:file:lineNumber:description:));
+                      
+        swizzleMethod([NSAssertionHandler class], 
+                      @selector(handleFailureInFunction:file:lineNumber:description:), 
+                      @selector(my_handleFailureInFunction:file:lineNumber:description:));
+                      
         NSLog(@"[LqFPSOptimizer] Standalone Anti-Crash Tweak initialized successfully!");
     }
 }
