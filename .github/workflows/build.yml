@@ -17,13 +17,6 @@ jobs:
         brew install ldid
         git clone --recursive https://github.com/theos/theos.git ~/theos
         echo "THEOS=~/theos" >> $GITHUB_ENV
-        
-    - name: Download iOS SDK
-      run: |
-        mkdir -p ~/theos/sdks
-        curl -L https://github.com/growtopiajaw/iPhoneOS-SDK/releases/download/v1.0/iPhoneOS14.5.sdk.zip -o ~/theos/sdks/iPhoneOS14.5.sdk.zip
-        unzip -q ~/theos/sdks/iPhoneOS14.5.sdk.zip -d ~/theos/sdks/
-        rm ~/theos/sdks/iPhoneOS14.5.sdk.zip
 
     - name: Compile Tweak
       run: |
