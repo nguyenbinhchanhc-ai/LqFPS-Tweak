@@ -1,0 +1,36 @@
+name: Build iOS Tweak
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-13
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Setup Theos
+      run: |
+        bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+        echo "THEOS=~/theos" >> $GITHUB_ENV
+        
+    - name: Download iOS SDK
+      run: |
+        mkdir -p ~/theos/sdks
+        curl -L https://github.com/theos/sdks/raw/master/iPhoneOS14.5.sdk.tar.xz -o ~/theos/sdks/iPhoneOS14.5.sdk.tar.xz
+        tar -xf ~/theos/sdks/iPhoneOS14.5.sdk.tar.xz -C ~/theos/sdks/
+        rm ~/theos/sdks/iPhoneOS14.5.sdk.tar.xz
+
+    - name: Compile Tweak
+      run: |
+        export THEOS=~/theos
+        make package FINALPACKAGE=1
+
+    - name: Upload Compiled File
+      uses: actions/upload-artifact@v3
+      with:
+        name: LqFPS-Compiled
+        path: packages/*.deb
